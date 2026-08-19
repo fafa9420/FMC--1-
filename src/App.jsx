@@ -303,8 +303,9 @@ export default function App() {
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
+              {/* 🚀 改為顯示「帳號」，並將 input type 改為 text */}
+              <label className="block text-sm font-medium text-gray-700 mb-1">帳號</label>
+              <input type="text" value={email} onChange={e => setEmail(e.target.value)} placeholder="請輸入自訂帳號" className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">密碼</label>
