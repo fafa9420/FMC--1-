@@ -86,7 +86,9 @@ export default function App() {
     e.preventDefault();
     setLoginError('');
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      // 🚀 障眼法：如果使用者沒有輸入 @，系統自動幫他補上假網域 @fmc.com
+      const loginAccount = email.includes('@') ? email : `${email}@fmc.com`;
+      await signInWithEmailAndPassword(auth, loginAccount, password);
     } catch (error) {
       setLoginError('登入失敗，請檢查帳號密碼。');
     }
