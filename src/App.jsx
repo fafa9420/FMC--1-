@@ -32,6 +32,57 @@ const parseNumber = (val) => {
   return isNaN(num) ? 0 : num;
 };
 
+// 🚀 智慧關鍵字分類器：將原始頁籤別強制歸類為 6 大項
+const getMappedTabType = (raw) => {
+  const s = String(raw || '');
+  if (s.includes('重點商品')) return '重點商品';
+  if (s.includes('閃購')) return '限時閃購';
+  if (s.includes('新品')) return '檔期新品';
+  if (s.includes('店長愛團區')) return '店長愛團區';
+  if (s.includes('宅配')) return '團購宅配';
+  if (s.includes('一般品') || s.includes('快速到貨')) return '快速到貨';
+  return '其他'; // 如果都不符合，歸類為其他
+};
+
+// 🚀 標籤專屬配色器
+const getTabBadgeColor = (tab) => {
+  switch(tab) {
+    case '重點商品': return 'bg-red-50 text-red-700 border-red-200';
+    case '限時閃購': return 'bg-orange-50 text-orange-700 border-orange-200';
+    case '檔期新品': return 'bg-green-50 text-green-700 border-green-200';
+    case '店長愛團區': return 'bg-purple-50 text-purple-700 border-purple-200';
+    case '團購宅配': return 'bg-blue-50 text-blue-700 border-blue-200';
+    case '快速到貨': return 'bg-cyan-50 text-cyan-700 border-cyan-200';
+    default: return 'bg-gray-50 text-gray-500 border-gray-200';
+  }
+};
+
+// 資料還原解析器：讀取微縮後的資料並直接套用「智慧關鍵字分類器」
+const expandData = (parsedArray) => {
+  return parsedArray.map(item => {
+    // 找出原始的頁籤別
+    const rawTab = item.tabType || item.t || '';
+    // 進行分類轉換
+    const mappedTab = getMappedTabType(rawTab);
+
+    if (item.itemId) return { ...item, tabType: mappedTab };
+    return {
+      date: item.d,
+      itemId: item.i,
+      itemName: item.n,
+      tabType: mappedTab, // 寫入分類後的頁籤
+      category: item.c,
+      deliveryType: item.dt,
+      unitPrice: item.p,
+      orderQty: item.oq,
+      orderAmt: item.oa,
+      stockQty: item.sq,
+      fulfillRate: item.fr,
+      isNoLimit: item.nl
+    };
+  });
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState('');
@@ -67,7 +118,6 @@ export default function App() {
 
   const loadHistoryList = async () => {
     try {
-      // 🚀 將 limit(5) 改為 limit(3)，只抓取最近 3 筆歷史紀錄
       const q = query(collection(db, "uploadHistory"), orderBy("timestamp", "desc"), limit(3));
       const querySnapshot = await getDocs(q);
       const list = [];
@@ -77,7 +127,7 @@ export default function App() {
       setHistoryList(list);
       if (list.length > 0) {
         setCurrentHistoryId(list[0].id);
-        setRawData(JSON.parse(list[0].dataStr));
+        setRawData(expandData(JSON.parse(list[0].dataStr)));
       }
     } catch (error) {
       console.error("載入歷史紀錄失敗", error);
@@ -105,7 +155,6 @@ export default function App() {
     const file = e.target.files[0];
     if (!file) return;
 
-    // 🚀 關鍵修復：選取檔案後立刻清空 input 記憶，讓您可以重複上傳相同檔名的報表
     e.target.value = '';
 
     if (!xlsxLoaded || !window.XLSX) {
@@ -113,7 +162,7 @@ export default function App() {
       return;
     }
 
-    setUploadStatus({ type: 'loading', msg: '解析與上傳中...' });
+    setUploadStatus({ type: 'loading', msg: '檔案解析與雲端同步中，請稍候...' });
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
@@ -125,6 +174,8 @@ export default function App() {
         wb.SheetNames.forEach(sheetName => {
           const ws = wb.Sheets[sheetName];
           const jsonData = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+          let lastTabType = sheetName; 
 
           for (let i = 0; i < jsonData.length; i++) {
             const row = jsonData[i];
@@ -147,7 +198,21 @@ export default function App() {
                 }
             }
 
-            const tabTypeRaw = (row[2] || '').toString().trim(); 
+            let currentTabRaw = (row[2] !== undefined && row[2] !== null) ? row[2].toString().trim() : '';
+            
+            if (currentTabRaw && !currentTabRaw.includes('頁籤別') && !currentTabRaw.includes('合計')) {
+                lastTabType = currentTabRaw;
+            } else if (!currentTabRaw) {
+                currentTabRaw = lastTabType;
+            }
+
+            if (!currentTabRaw) {
+                currentTabRaw = sheetName;
+            }
+
+            // 🚀 在上傳階段直接套用「智慧關鍵字分類器」
+            const tabTypeMapped = getMappedTabType(currentTabRaw);
+            
             const deliveryType = (row[3] || '').toString().trim(); 
             const categoryStr = (row[4] || '').toString().trim(); 
             const itemNameStr = (row[5] || '').toString().trim(); 
@@ -159,11 +224,10 @@ export default function App() {
             const cleanId = itemId.replace(/\s+/g, '');
             const cleanName = itemNameStr.replace(/\s+/g, '');
             const cleanCat = categoryStr.replace(/\s+/g, '');
-            const cleanTab = tabTypeRaw.replace(/\s+/g, '');
             
             if (!itemId || 
-                cleanId.includes('合計') || cleanTab.includes('合計') || 
-                cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanTab.includes('頁籤別') ||
+                cleanId.includes('合計') || 
+                cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') ||
                 cleanName.includes('未知商品') || cleanName.includes('無資料') || 
                 cleanCat.includes('未分類') || cleanCat.includes('無資料')) {
               continue;
@@ -181,18 +245,18 @@ export default function App() {
             }
 
             allData.push({
-              date: dateStr, 
-              itemId: itemId,
-              itemName: itemNameStr,
-              tabType: tabTypeRaw,
-              category: categoryStr,
-              deliveryType: deliveryType || '一般',
-              unitPrice: unitPrice,
-              orderQty: orderQty,
-              orderAmt: orderAmt,
-              stockQty: stockQty,
-              fulfillRate: fulfillRate,
-              isNoLimit: isNoLimit
+              d: dateStr, 
+              i: itemId,
+              n: itemNameStr,
+              t: tabTypeMapped, // 存入 6 大分類
+              c: categoryStr,
+              dt: deliveryType || '一般',
+              p: unitPrice,
+              oq: orderQty,
+              oa: orderAmt,
+              sq: stockQty,
+              fr: fulfillRate,
+              nl: isNoLimit
             });
           }
         });
@@ -205,10 +269,11 @@ export default function App() {
         });
 
         await loadHistoryList();
-        setUploadStatus({ type: 'success', msg: '上傳並同步至雲端成功！' });
-        setTimeout(() => setUploadStatus({ type: 'idle', msg: '' }), 3000);
+        setUploadStatus({ type: 'success', msg: '報表解析完成！資料已成功同步至雲端。' });
+        setTimeout(() => setUploadStatus({ type: 'idle', msg: '' }), 5000);
       } catch (err) {
-        setUploadStatus({ type: 'error', msg: '解析失敗，請確認檔案格式。' });
+        console.error(err);
+        setUploadStatus({ type: 'error', msg: '上傳失敗：檔案資料量過大超出極限，或格式異常。' });
       }
     };
     reader.readAsBinaryString(file);
@@ -219,7 +284,7 @@ export default function App() {
     setCurrentHistoryId(id);
     const selected = historyList.find(h => h.id === id);
     if (selected) {
-      setRawData(JSON.parse(selected.dataStr));
+      setRawData(expandData(JSON.parse(selected.dataStr)));
     }
   };
 
@@ -235,9 +300,8 @@ export default function App() {
       const cleanId = String(item.itemId || '').replace(/\s+/g, '');
       const cleanName = String(item.itemName || '').replace(/\s+/g, '');
       const cleanCat = String(item.category || '').replace(/\s+/g, '');
-      const cleanTab = String(item.tabType || '').replace(/\s+/g, '');
 
-      if (cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanTab.includes('頁籤別') || cleanId.includes('合計')) {
+      if (cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanId.includes('合計')) {
          return false; 
       }
 
@@ -320,20 +384,29 @@ export default function App() {
       const cleanId = String(item.itemId || '').replace(/\s+/g, '');
       const cleanName = String(item.itemName || '').replace(/\s+/g, '');
       const cleanCat = String(item.category || '').replace(/\s+/g, '');
-      const cleanTab = String(item.tabType || '').replace(/\s+/g, '');
       
-      const isHeaderOrJunk = cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanTab.includes('頁籤別') || cleanId.includes('合計');
+      const isHeaderOrJunk = cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanId.includes('合計');
       const isZeroSales = item.orderQty === 0 && item.orderAmt === 0; 
       
       return !isHeaderOrJunk && !isZeroSales;
     });
+
+    const tabData = filters.dateRange === 'all' 
+      ? cleanData 
+      : cleanData.filter(d => d.date === filters.dateRange);
+    
+    // 🚀 強制鎖定只呈現這 6 個頁籤，並排序
+    const allowedTabs = ['重點商品', '限時閃購', '檔期新品', '店長愛團區', '團購宅配', '快速到貨'];
+    const availableTabs = [...new Set(tabData.map(d => d.tabType))]
+      .filter(t => allowedTabs.includes(t))
+      .sort((a, b) => allowedTabs.indexOf(a) - allowedTabs.indexOf(b));
     
     return {
       dates: [...new Set(cleanData.map(d => d.date))].filter(Boolean).sort(),
       categories: [...new Set(cleanData.map(d => d.category))].filter(Boolean),
-      tabTypes: [...new Set(cleanData.map(d => d.tabType))].filter(Boolean).sort(),
+      tabTypes: availableTabs,
     };
-  }, [rawData]);
+  }, [rawData, filters.dateRange]);
 
   if (!user) {
     return (
@@ -395,12 +468,29 @@ export default function App() {
           </div>
         </div>
 
+        {uploadStatus.msg && (
+          <div className={`p-4 rounded-xl shadow-sm border font-medium flex items-center gap-3 ${
+            uploadStatus.type === 'error' ? 'bg-red-50 text-red-700 border-red-200' :
+            uploadStatus.type === 'loading' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+            'bg-green-50 text-green-700 border-green-200'
+          }`}>
+            {uploadStatus.type === 'error' ? <AlertTriangle className="h-5 w-5"/> : 
+             uploadStatus.type === 'loading' ? <Upload className="h-5 w-5 animate-bounce"/> : 
+             <CheckCircle className="h-5 w-5"/>}
+            {uploadStatus.msg}
+          </div>
+        )}
+
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400"/>
             <input type="text" placeholder="搜尋代號或名稱..." value={filters.keyword} onChange={(e) => setFilters(f => ({ ...f, keyword: e.target.value }))} className="w-full pl-9 pr-4 py-2 bg-gray-50 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-          <select value={filters.dateRange} onChange={(e) => setFilters(f => ({ ...f, dateRange: e.target.value }))} className="px-4 py-2 bg-gray-50 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <select 
+            value={filters.dateRange} 
+            onChange={(e) => setFilters(f => ({ ...f, dateRange: e.target.value, tabType: 'all' }))} 
+            className="px-4 py-2 bg-gray-50 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
             <option value="all">所有檔期</option>
             {filterOptions.dates.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
@@ -568,8 +658,14 @@ export default function App() {
                       id={`row-${item.itemId}`}
                       className={`border-b hover:bg-blue-50 transition ${highlightedItem === item.itemId ? 'bg-green-50 border-2 border-green-500' : ''}`}>
                     <td className="px-4 py-3 whitespace-nowrap">{item.date}</td>
+                    {/* 🚀 套用新的標籤顏色 */}
                     <td className="px-4 py-3 whitespace-nowrap">
-                      {item.tabType ? <span className="px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-xs">{item.tabType}</span> : <span className="text-gray-400">-</span>}
+                      {item.tabType && item.tabType !== '其他' ? 
+                        <span className={`px-2 py-1 border rounded text-xs font-medium ${getTabBadgeColor(item.tabType)}`}>
+                          {item.tabType}
+                        </span> 
+                        : <span className="text-gray-400">-</span>
+                      }
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{item.itemId}</td>
                     <td className="px-4 py-3 max-w-[200px] truncate" title={item.itemName}>{item.itemName}</td>
