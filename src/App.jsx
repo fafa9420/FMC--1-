@@ -152,7 +152,6 @@ export default function App() {
             const orderQty = parseNumber(row[10]); 
             const stockQty = parseNumber(row[11]); 
             
-            // 🚀 上傳時的暴力濾網：去除所有空白符號再來比對
             const cleanId = itemId.replace(/\s+/g, '');
             const cleanName = itemNameStr.replace(/\s+/g, '');
             const cleanCat = categoryStr.replace(/\s+/g, '');
@@ -162,6 +161,11 @@ export default function App() {
                 cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || 
                 cleanName.includes('未知商品') || cleanName.includes('無資料') || 
                 cleanCat.includes('未分類') || cleanCat.includes('無資料')) {
+              continue;
+            }
+
+            // 🚀 剃除下單數量與下單金額皆為 0 的品項 (上傳解析時剔除)
+            if (orderQty === 0 && orderAmt === 0) {
               continue;
             }
 
@@ -223,13 +227,17 @@ export default function App() {
 
   const filteredData = useMemo(() => {
     return rawData.filter(item => {
-      // 🚀 顯示時的終極暴力濾網：強制剔除隱藏空白後，只要碰到關鍵字直接殺掉
       const cleanId = String(item.itemId || '').replace(/\s+/g, '');
       const cleanName = String(item.itemName || '').replace(/\s+/g, '');
       const cleanCat = String(item.category || '').replace(/\s+/g, '');
 
       if (cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanId.includes('合計')) {
          return false; 
+      }
+
+      // 🚀 剃除下單數量與下單金額皆為 0 的品項 (現有資料顯示時過濾)
+      if (item.orderQty === 0 && item.orderAmt === 0) {
+        return false;
       }
 
       const matchKeyword = item.itemName.includes(filters.keyword) || item.itemId.toString().includes(filters.keyword);
@@ -302,13 +310,15 @@ export default function App() {
   const scatterData = useMemo(() => filteredData.filter(d => !d.isNoLimit && d.orderAmt > 0), [filteredData]);
 
   const filterOptions = useMemo(() => {
-    // 🚀 選單的暴力濾網
     const cleanData = rawData.filter(item => {
       const cleanId = String(item.itemId || '').replace(/\s+/g, '');
       const cleanName = String(item.itemName || '').replace(/\s+/g, '');
       const cleanCat = String(item.category || '').replace(/\s+/g, '');
       
-      return !cleanId.includes('代號') && !cleanName.includes('名稱') && !cleanCat.includes('採購別') && !cleanId.includes('合計');
+      const isHeaderOrJunk = cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanId.includes('合計');
+      const isZeroSales = item.orderQty === 0 && item.orderAmt === 0; // 同樣在選項中剃除0銷量的雜訊分類
+      
+      return !isHeaderOrJunk && !isZeroSales;
     });
     
     return {
