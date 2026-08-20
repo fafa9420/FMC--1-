@@ -42,7 +42,7 @@ export default function App() {
   const [historyList, setHistoryList] = useState([]);
   const [currentHistoryId, setCurrentHistoryId] = useState('');
   const [uploadStatus, setUploadStatus] = useState({ type: 'idle', msg: '' });
-  const [filters, setFilters] = useState({ keyword: '', dateRange: 'all', category: 'all', deliveryType: 'all' });
+  const [filters, setFilters] = useState({ keyword: '', dateRange: 'all', category: 'all', deliveryType: 'all', tabType: 'all' });
   const [sortConfig, setSortConfig] = useState({ key: 'fulfillRate', direction: 'desc' });
   const [highlightedItem, setHighlightedItem] = useState(null);
   const [xlsxLoaded, setXlsxLoaded] = useState(false);
@@ -67,7 +67,8 @@ export default function App() {
 
   const loadHistoryList = async () => {
     try {
-      const q = query(collection(db, "uploadHistory"), orderBy("timestamp", "desc"), limit(5));
+      // 🚀 將 limit(5) 改為 limit(3)，只抓取最近 3 筆歷史紀錄
+      const q = query(collection(db, "uploadHistory"), orderBy("timestamp", "desc"), limit(3));
       const querySnapshot = await getDocs(q);
       const list = [];
       querySnapshot.forEach((doc) => {
@@ -103,6 +104,9 @@ export default function App() {
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+
+    // 🚀 關鍵修復：選取檔案後立刻清空 input 記憶，讓您可以重複上傳相同檔名的報表
+    e.target.value = '';
 
     if (!xlsxLoaded || !window.XLSX) {
       setUploadStatus({ type: 'error', msg: '系統模組載入中，請稍後再試。' });
@@ -155,16 +159,16 @@ export default function App() {
             const cleanId = itemId.replace(/\s+/g, '');
             const cleanName = itemNameStr.replace(/\s+/g, '');
             const cleanCat = categoryStr.replace(/\s+/g, '');
+            const cleanTab = tabTypeRaw.replace(/\s+/g, '');
             
             if (!itemId || 
-                cleanId.includes('合計') || tabTypeRaw.includes('合計') || 
-                cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || 
+                cleanId.includes('合計') || cleanTab.includes('合計') || 
+                cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanTab.includes('頁籤別') ||
                 cleanName.includes('未知商品') || cleanName.includes('無資料') || 
                 cleanCat.includes('未分類') || cleanCat.includes('無資料')) {
               continue;
             }
 
-            // 🚀 剃除下單數量與下單金額皆為 0 的品項 (上傳解析時剔除)
             if (orderQty === 0 && orderAmt === 0) {
               continue;
             }
@@ -180,6 +184,7 @@ export default function App() {
               date: dateStr, 
               itemId: itemId,
               itemName: itemNameStr,
+              tabType: tabTypeRaw,
               category: categoryStr,
               deliveryType: deliveryType || '一般',
               unitPrice: unitPrice,
@@ -230,12 +235,12 @@ export default function App() {
       const cleanId = String(item.itemId || '').replace(/\s+/g, '');
       const cleanName = String(item.itemName || '').replace(/\s+/g, '');
       const cleanCat = String(item.category || '').replace(/\s+/g, '');
+      const cleanTab = String(item.tabType || '').replace(/\s+/g, '');
 
-      if (cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanId.includes('合計')) {
+      if (cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanTab.includes('頁籤別') || cleanId.includes('合計')) {
          return false; 
       }
 
-      // 🚀 剃除下單數量與下單金額皆為 0 的品項 (現有資料顯示時過濾)
       if (item.orderQty === 0 && item.orderAmt === 0) {
         return false;
       }
@@ -243,11 +248,12 @@ export default function App() {
       const matchKeyword = item.itemName.includes(filters.keyword) || item.itemId.toString().includes(filters.keyword);
       const matchDate = filters.dateRange === 'all' || item.date === filters.dateRange;
       const matchCategory = filters.category === 'all' || item.category === filters.category;
+      const matchTabType = filters.tabType === 'all' || item.tabType === filters.tabType;
       
       const matchDelivery = filters.deliveryType === 'all' || 
                             String(item.deliveryType || '').toLowerCase().includes(filters.deliveryType.toLowerCase());
                             
-      return matchKeyword && matchDate && matchCategory && matchDelivery;
+      return matchKeyword && matchDate && matchCategory && matchTabType && matchDelivery;
     });
   }, [rawData, filters]);
 
@@ -314,9 +320,10 @@ export default function App() {
       const cleanId = String(item.itemId || '').replace(/\s+/g, '');
       const cleanName = String(item.itemName || '').replace(/\s+/g, '');
       const cleanCat = String(item.category || '').replace(/\s+/g, '');
+      const cleanTab = String(item.tabType || '').replace(/\s+/g, '');
       
-      const isHeaderOrJunk = cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanId.includes('合計');
-      const isZeroSales = item.orderQty === 0 && item.orderAmt === 0; // 同樣在選項中剃除0銷量的雜訊分類
+      const isHeaderOrJunk = cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanTab.includes('頁籤別') || cleanId.includes('合計');
+      const isZeroSales = item.orderQty === 0 && item.orderAmt === 0; 
       
       return !isHeaderOrJunk && !isZeroSales;
     });
@@ -324,6 +331,7 @@ export default function App() {
     return {
       dates: [...new Set(cleanData.map(d => d.date))].filter(Boolean).sort(),
       categories: [...new Set(cleanData.map(d => d.category))].filter(Boolean),
+      tabTypes: [...new Set(cleanData.map(d => d.tabType))].filter(Boolean).sort(),
     };
   }, [rawData]);
 
@@ -387,7 +395,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400"/>
             <input type="text" placeholder="搜尋代號或名稱..." value={filters.keyword} onChange={(e) => setFilters(f => ({ ...f, keyword: e.target.value }))} className="w-full pl-9 pr-4 py-2 bg-gray-50 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -395,6 +403,10 @@ export default function App() {
           <select value={filters.dateRange} onChange={(e) => setFilters(f => ({ ...f, dateRange: e.target.value }))} className="px-4 py-2 bg-gray-50 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="all">所有檔期</option>
             {filterOptions.dates.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+          <select value={filters.tabType} onChange={(e) => setFilters(f => ({ ...f, tabType: e.target.value }))} className="px-4 py-2 bg-gray-50 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">所有頁籤別</option>
+            {filterOptions.tabTypes.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
           <select value={filters.category} onChange={(e) => setFilters(f => ({ ...f, category: e.target.value }))} className="px-4 py-2 bg-gray-50 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="all">所有採購別</option>
@@ -524,6 +536,7 @@ export default function App() {
                 <tr>
                   {[
                     { key: 'date', label: '檔期' },
+                    { key: 'tabType', label: '頁籤別' }, 
                     { key: 'itemId', label: '商品代號' },
                     { key: 'itemName', label: '商品名稱' },
                     { key: 'category', label: '採購別' },
@@ -555,6 +568,9 @@ export default function App() {
                       id={`row-${item.itemId}`}
                       className={`border-b hover:bg-blue-50 transition ${highlightedItem === item.itemId ? 'bg-green-50 border-2 border-green-500' : ''}`}>
                     <td className="px-4 py-3 whitespace-nowrap">{item.date}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {item.tabType ? <span className="px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded text-xs">{item.tabType}</span> : <span className="text-gray-400">-</span>}
+                    </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{item.itemId}</td>
                     <td className="px-4 py-3 max-w-[200px] truncate" title={item.itemName}>{item.itemName}</td>
                     <td className="px-4 py-3">
@@ -583,7 +599,7 @@ export default function App() {
                   </tr>
                 ))}
                 {sortedData.length === 0 && (
-                  <tr><td colSpan="10" className="px-4 py-8 text-center text-gray-500">目前沒有符合條件的資料</td></tr>
+                  <tr><td colSpan="11" className="px-4 py-8 text-center text-gray-500">目前沒有符合條件的資料</td></tr>
                 )}
               </tbody>
             </table>
