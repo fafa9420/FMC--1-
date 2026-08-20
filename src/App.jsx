@@ -218,12 +218,21 @@ export default function App() {
 
   const filteredData = useMemo(() => {
     return rawData.filter(item => {
-      const matchKeyword = item.itemName.includes(filters.keyword) || item.itemId.toString().includes(filters.keyword);
+      // 🚀 終極防線：改用 includes 模糊比對，無視任何空白或隱藏字元，徹底阻擋表頭與合計列
+      const idStr = String(item.itemId || '');
+      const nameStr = String(item.itemName || '');
+      const catStr = String(item.category || '');
+
+      if (idStr.includes('商品代號') || nameStr.includes('商品名稱') || catStr.includes('採購別') || idStr.includes('合計')) {
+         return false; 
+      }
+
+      const matchKeyword = nameStr.includes(filters.keyword) || idStr.includes(filters.keyword);
       const matchDate = filters.dateRange === 'all' || item.date === filters.dateRange;
       const matchCategory = filters.category === 'all' || item.category === filters.category;
       
       const matchDelivery = filters.deliveryType === 'all' || 
-                            item.deliveryType.toLowerCase().includes(filters.deliveryType.toLowerCase());
+                            String(item.deliveryType || '').toLowerCase().includes(filters.deliveryType.toLowerCase());
                             
       return matchKeyword && matchDate && matchCategory && matchDelivery;
     });
@@ -287,10 +296,21 @@ export default function App() {
 
   const scatterData = useMemo(() => filteredData.filter(d => !d.isNoLimit && d.orderAmt > 0), [filteredData]);
 
-  const filterOptions = useMemo(() => ({
-    dates: [...new Set(rawData.map(d => d.date))].filter(Boolean).sort(),
-    categories: [...new Set(rawData.map(d => d.category))].filter(Boolean),
-  }), [rawData]);
+  const filterOptions = useMemo(() => {
+    // 🚀 下拉選單同步升級：建立選項前，利用 includes 徹底濾除髒資料
+    const cleanData = rawData.filter(item => {
+      const idStr = String(item.itemId || '');
+      const nameStr = String(item.itemName || '');
+      const catStr = String(item.category || '');
+      
+      return !idStr.includes('商品代號') && !nameStr.includes('商品名稱') && !catStr.includes('採購別') && !idStr.includes('合計');
+    });
+    
+    return {
+      dates: [...new Set(cleanData.map(d => d.date))].filter(Boolean).sort(),
+      categories: [...new Set(cleanData.map(d => d.category))].filter(Boolean),
+    };
+  }, [rawData]);
 
   if (!user) {
     return (
