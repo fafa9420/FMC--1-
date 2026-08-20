@@ -16,6 +16,7 @@ const firebaseConfig = {
   measurementId: "G-K24K5ZTF46"
 };
 
+// 初始化 Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
@@ -86,7 +87,6 @@ export default function App() {
     e.preventDefault();
     setLoginError('');
     try {
-      // 🚀 障眼法：如果使用者沒有輸入 @，系統自動幫他補上假網域 @fmc.com
       const loginAccount = email.includes('@') ? email : `${email}@fmc.com`;
       await signInWithEmailAndPassword(auth, loginAccount, password);
     } catch (error) {
@@ -126,9 +126,8 @@ export default function App() {
             const row = jsonData[i];
             if (!row || row.length === 0) continue; 
             
-            const itemId = (row[0] || '').toString().trim(); // A欄位
+            const itemId = (row[0] || '').toString().trim(); 
             
-            // 檔期: 強制讀取 B 欄，並智慧清洗只保留最後 4 碼數字
             let dateStr = (row[1] || '').toString().trim();
             const dateNums = dateStr.match(/\d+/g);
             if (dateNums) {
@@ -144,19 +143,25 @@ export default function App() {
                 }
             }
 
-            const tabTypeRaw = (row[2] || '').toString().trim(); // C欄位
-            const deliveryType = (row[3] || '').toString().trim(); // D欄位
-            const categoryStr = (row[4] || '').toString().trim(); // E欄位
-            const itemNameStr = (row[5] || '').toString().trim(); // F欄位
-            const unitPrice = parseNumber(row[6]); // G欄位
-            const orderAmt = parseNumber(row[8]); // I欄位
-            const orderQty = parseNumber(row[10]); // K欄位
-            const stockQty = parseNumber(row[11]); // L欄位
+            const tabTypeRaw = (row[2] || '').toString().trim(); 
+            const deliveryType = (row[3] || '').toString().trim(); 
+            const categoryStr = (row[4] || '').toString().trim(); 
+            const itemNameStr = (row[5] || '').toString().trim(); 
+            const unitPrice = parseNumber(row[6]); 
+            const orderAmt = parseNumber(row[8]); 
+            const orderQty = parseNumber(row[10]); 
+            const stockQty = parseNumber(row[11]); 
             
-            // 擋掉合計列與無效商品，避免總金額暴增
-            if (!itemId || itemId.includes('合計') || tabTypeRaw.includes('合計') || 
-                itemNameStr.includes('未知商品') || itemNameStr.includes('無資料') || 
-                categoryStr.includes('未分類') || categoryStr.includes('無資料')) {
+            // 🚀 上傳時的暴力濾網：去除所有空白符號再來比對
+            const cleanId = itemId.replace(/\s+/g, '');
+            const cleanName = itemNameStr.replace(/\s+/g, '');
+            const cleanCat = categoryStr.replace(/\s+/g, '');
+            
+            if (!itemId || 
+                cleanId.includes('合計') || tabTypeRaw.includes('合計') || 
+                cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || 
+                cleanName.includes('未知商品') || cleanName.includes('無資料') || 
+                cleanCat.includes('未分類') || cleanCat.includes('無資料')) {
               continue;
             }
 
@@ -218,16 +223,16 @@ export default function App() {
 
   const filteredData = useMemo(() => {
     return rawData.filter(item => {
-      // 🚀 終極防線：改用 includes 模糊比對，無視任何空白或隱藏字元，徹底阻擋表頭與合計列
-      const idStr = String(item.itemId || '');
-      const nameStr = String(item.itemName || '');
-      const catStr = String(item.category || '');
+      // 🚀 顯示時的終極暴力濾網：強制剔除隱藏空白後，只要碰到關鍵字直接殺掉
+      const cleanId = String(item.itemId || '').replace(/\s+/g, '');
+      const cleanName = String(item.itemName || '').replace(/\s+/g, '');
+      const cleanCat = String(item.category || '').replace(/\s+/g, '');
 
-      if (idStr.includes('商品代號') || nameStr.includes('商品名稱') || catStr.includes('採購別') || idStr.includes('合計')) {
+      if (cleanId.includes('代號') || cleanName.includes('名稱') || cleanCat.includes('採購別') || cleanId.includes('合計')) {
          return false; 
       }
 
-      const matchKeyword = nameStr.includes(filters.keyword) || idStr.includes(filters.keyword);
+      const matchKeyword = item.itemName.includes(filters.keyword) || item.itemId.toString().includes(filters.keyword);
       const matchDate = filters.dateRange === 'all' || item.date === filters.dateRange;
       const matchCategory = filters.category === 'all' || item.category === filters.category;
       
@@ -297,13 +302,13 @@ export default function App() {
   const scatterData = useMemo(() => filteredData.filter(d => !d.isNoLimit && d.orderAmt > 0), [filteredData]);
 
   const filterOptions = useMemo(() => {
-    // 🚀 下拉選單同步升級：建立選項前，利用 includes 徹底濾除髒資料
+    // 🚀 選單的暴力濾網
     const cleanData = rawData.filter(item => {
-      const idStr = String(item.itemId || '');
-      const nameStr = String(item.itemName || '');
-      const catStr = String(item.category || '');
+      const cleanId = String(item.itemId || '').replace(/\s+/g, '');
+      const cleanName = String(item.itemName || '').replace(/\s+/g, '');
+      const cleanCat = String(item.category || '').replace(/\s+/g, '');
       
-      return !idStr.includes('商品代號') && !nameStr.includes('商品名稱') && !catStr.includes('採購別') && !idStr.includes('合計');
+      return !cleanId.includes('代號') && !cleanName.includes('名稱') && !cleanCat.includes('採購別') && !cleanId.includes('合計');
     });
     
     return {
@@ -323,7 +328,6 @@ export default function App() {
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              {/* 🚀 改為顯示「帳號」，並將 input type 改為 text */}
               <label className="block text-sm font-medium text-gray-700 mb-1">帳號</label>
               <input type="text" value={email} onChange={e => setEmail(e.target.value)} placeholder="請輸入自訂帳號" className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
             </div>
@@ -349,7 +353,7 @@ export default function App() {
               <Package className="h-6 w-6 text-blue-600"/>
               全家團購商品銷售儀表板
             </h1>
-            <p className="text-sm text-gray-500 mt-1">雲端安全連線中 | 帳號: {user.email}</p>
+            <p className="text-sm text-gray-500 mt-1">雲端安全連線中 | 帳號: {user.email.replace('@fmc.com', '')}</p>
           </div>
           
           <div className="flex items-center gap-4 mt-4 md:mt-0">
